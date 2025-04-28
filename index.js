@@ -5,6 +5,7 @@ const { BotFrameworkAdapter, MemoryStorage, ConversationState, UserState } = req
 const Profile = require('./models/Profile');
 const { HealthyBitesBot } = require('./bot/HealthyBitesBot');
 const path = require('path');
+const Order = require('./models/Order');
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/HealthyBites', {
@@ -27,14 +28,30 @@ const memoryStorage = new MemoryStorage();
 const conversationState = new ConversationState(memoryStorage);
 const userState = new UserState(memoryStorage);
 
+// Store last order per user in memory for bot notification
+const lastOrderByPhone = {};
+
 // Main bot logic
-const bot = new HealthyBitesBot(Profile, conversationState, userState);
+const bot = new HealthyBitesBot(Profile, conversationState, userState, lastOrderByPhone);
 
 // Listen for incoming requests
 app.post('/api/messages', (req, res) => {
     adapter.processActivity(req, res, async (context) => {
         await bot.run(context);
     });
+});
+
+// API endpoint to receive orders
+app.post('/api/order', async (req, res) => {
+    const { phone, items, total, date } = req.body;
+    if (!phone || !items || !total || !date) {
+        return res.status(400).json({ error: 'Missing fields' });
+    }
+    const order = new Order({ phone, items, total, date });
+    await order.save();
+    // Store for bot to notify on next message
+    lastOrderByPhone[phone] = { items, total };
+    res.json({ success: true });
 });
 
 // Serve static files (order page and menu)

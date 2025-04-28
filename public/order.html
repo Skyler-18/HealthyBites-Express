@@ -5,43 +5,95 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order Food - HealthyBites Express</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 2em; background: #f8f8f8; }
-        h1, h2 { color: #2d7a2d; }
+        body { font-family: Arial, sans-serif; background: #f8f8f8; }
+        .container { max-width: 600px; margin: 3em auto 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 8px #0001; padding: 2em 2.5em 2em 2.5em; position: relative; }
+        h1, h2 { color: #2d7a2d; text-align: center; }
         .section { margin-bottom: 2em; }
         .menu-item { margin-bottom: 0.5em; }
         .desc { color: #555; font-size: 0.95em; margin-left: 1.5em; }
         .price { color: #0077cc; font-weight: bold; }
-        #user-id { margin-bottom: 1em; font-size: 1.1em; }
-        .submit-btn { background: #2d7a2d; color: #fff; border: none; padding: 0.7em 2em; font-size: 1em; border-radius: 5px; cursor: pointer; }
-        .submit-btn:hover { background: #256b25; }
+        #user-id { margin-bottom: 1em; font-size: 1.1em; text-align: center; }
+        .submit-btn, .back-btn, .confirm-btn, .close-btn { background: #2d7a2d; color: #fff; border: none; padding: 0.7em 2em; font-size: 1em; border-radius: 5px; cursor: pointer; margin: 0.5em; }
+        .submit-btn:hover, .back-btn:hover, .confirm-btn:hover, .close-btn:hover { background: #256b25; }
+        #bill-box {
+            position: fixed;
+            top: 1.5em;
+            right: 2em;
+            background: #e6f4ea;
+            border: 1px solid #b2d8c7;
+            border-radius: 8px;
+            padding: 1em 1.5em;
+            font-size: 1.1em;
+            color: #2d7a2d;
+            box-shadow: 0 1px 4px #0001;
+            z-index: 1000;
+        }
+        #summary-section {
+            display: none;
+            background: #f6fff6;
+            border-radius: 8px;
+            padding: 1.5em 1em;
+            box-shadow: 0 1px 4px #0001;
+            border: 2px solid red; /* DEBUG */
+            z-index: 2000;         /* DEBUG */
+        }
+        #close-section { display: none; text-align: center; }
+        @media (max-width: 700px) {
+            .container { padding: 1em; }
+            #bill-box { right: 1em; top: 1em; padding: 0.7em 1em; }
+        }
     </style>
 </head>
 <body>
-    <h1>Today's Menu</h1>
-    <div id="user-id"></div>
-    <form id="order-form">
-        <div id="menu"></div>
-        <button type="submit" class="submit-btn">Place Order</button>
-    </form>
+    <div id="bill-box">Current Bill: ₹<span id="current-bill">0</span></div>
+    <div class="container">
+        <h1>Today's Menu</h1>
+        <div id="user-id"></div>
+        <form id="order-form">
+            <div id="menu"></div>
+            <div style="text-align:center"><button type="submit" class="submit-btn">Place Order</button></div>
+        </form>
+        <div id="summary-section">
+            <h2>Order Summary</h2>
+            <div id="summary-list"></div>
+            <div style="font-size:1.2em; margin:1em 0;">Total: ₹<span id="summary-total"></span></div>
+            <div style="text-align:center">
+                <button type="button" class="confirm-btn">Confirm</button>
+                <button type="button" class="back-btn">Go Back</button>
+            </div>
+        </div>
+        <div id="close-section">
+            <h2>Order Placed!</h2>
+            <div style="margin:1em 0 2em 0;">You can close this window now.</div>
+            <button class="close-btn">Close Window</button>
+        </div>
+    </div>
     <script>
         // Get phone from query param
         const urlParams = new URLSearchParams(window.location.search);
         const phone = urlParams.get('phone');
         document.getElementById('user-id').textContent = phone ? `Ordering as: ${phone}` : '';
 
+        let menuData = null;
+        let prices = {};
+        let selectedItems = [];
+
         // Fetch and render menu
         fetch('/menu.json')
             .then(res => res.json())
             .then(menu => {
+                menuData = menu;
                 const menuDiv = document.getElementById('menu');
                 menuDiv.innerHTML = '';
                 function renderSection(title, items, isExtra) {
                     let html = `<div class='section'><h2>${title}</h2>`;
                     items.forEach(item => {
                         const id = `${title}-${item.name}`.replace(/\s+/g, '-');
+                        const price = isExtra ? item.price : 20;
+                        prices[item.name] = price;
                         html += `<div class='menu-item'>
-                            <input type='checkbox' id='${id}' name='order' value='${item.name}'>
-                            <label for='${id}'><b>${item.name}</b>${isExtra && item.price ? ` <span class='price'>₹${item.price}</span>` : ''}</label>
+                            <input type='checkbox' id='${id}' name='order' value='${item.name}' data-price='${price}'>
+                            <label for='${id}'><b>${item.name}</b> <span class='price'>₹${price}</span></label>
                             ${item.desc ? `<div class='desc'>${item.desc}</div>` : ''}
                         </div>`;
                     });
@@ -51,15 +103,83 @@
                 menuDiv.innerHTML += renderSection('Lunch', menu.Lunch);
                 menuDiv.innerHTML += renderSection('Dinner', menu.Dinner);
                 menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+                updateBill();
             });
 
-        // Placeholder for order submission
+        // Bill calculation
+        function updateBill() {
+            const checked = Array.from(document.querySelectorAll('input[name="order"]:checked'));
+            let total = 0;
+            checked.forEach(cb => {
+                total += parseInt(cb.getAttribute('data-price'));
+            });
+            document.getElementById('current-bill').textContent = total;
+        }
+        document.addEventListener('change', function(e) {
+            if (e.target && e.target.name === 'order') updateBill();
+        });
+
+        // Order form submit
         document.getElementById('order-form').addEventListener('submit', function(e) {
             e.preventDefault();
-            const checked = Array.from(document.querySelectorAll('input[name="order"]:checked')).map(cb => cb.value);
-            alert('Order placed for: ' + checked.join(', '));
-            // TODO: Send order to backend
+            selectedItems = Array.from(document.querySelectorAll('input[name="order"]:checked')).map(cb => cb.value);
+            console.log('Selected items:', selectedItems);
+            if (selectedItems.length === 0) {
+                alert('Please select at least one item.');
+                return;
+            }
+            // Show summary
+            document.getElementById('order-form').style.display = 'none';
+            document.getElementById('summary-section').style.display = 'block';
+            console.log('Showing summary section');
+            showSummary();
         });
+
+        function showSummary() {
+            const summarySection = document.getElementById('summary-section');
+            const summaryList = document.getElementById('summary-list');
+            let total = 0;
+            summaryList.innerHTML = '<ul style="list-style:none;padding:0;">' + selectedItems.map(item => {
+                const price = prices[item];
+                total += price;
+                return `<li style='margin-bottom:0.5em;'><b>${item}</b> <span class='price'>₹${price}</span></li>`;
+            }).join('') + '</ul>';
+            document.getElementById('summary-total').textContent = total;
+            summarySection.style.display = 'block';
+            console.log('showSummary() called, summary section should be visible');
+        }
+
+        // Go Back button
+        document.querySelector('.back-btn').onclick = function() {
+            document.getElementById('summary-section').style.display = 'none';
+            document.getElementById('order-form').style.display = '';
+        };
+
+        // Confirm button
+        document.querySelector('.confirm-btn').onclick = function() {
+            const total = selectedItems.reduce((sum, item) => sum + prices[item], 0);
+            fetch('/api/order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone,
+                    items: selectedItems,
+                    total,
+                    date: new Date().toISOString()
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('summary-section').style.display = 'none';
+                document.getElementById('close-section').style.display = 'block';
+                document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+            });
+        };
+
+        // Close window button
+        document.querySelector('.close-btn').onclick = function() {
+            window.close();
+        };
     </script>
 </body>
 </html> 

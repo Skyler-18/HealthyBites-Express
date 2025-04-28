@@ -46,11 +46,12 @@ function formatMenu(menu) {
 }
 
 class HealthyBitesBot extends ActivityHandler {
-    constructor(User, conversationState, userState) {
+    constructor(User, conversationState, userState, lastOrderByPhone = {}) {
         super();
         this.User = User;
         this.conversationState = conversationState;
         this.userState = userState;
+        this.lastOrderByPhone = lastOrderByPhone || {};
         this.onMembersAdded(async (context, next) => {
             const membersAdded = context.activity.membersAdded;
             for (let member of membersAdded) {
@@ -67,6 +68,13 @@ class HealthyBitesBot extends ActivityHandler {
             let onboardingStep = await onboardingStepAccessor.get(context, ONBOARDING_STEPS.NONE);
             let userProfile = await userProfileAccessor.get(context, {});
             const text = context.activity.text && context.activity.text.trim();
+
+            // Check for new order for this user
+            if (userProfile.phone && this.lastOrderByPhone[userProfile.phone]) {
+                const { items, total } = this.lastOrderByPhone[userProfile.phone];
+                await context.sendActivity(`We have received your order of Rs. ${total} for the following food items:\n- ${items.join('\n- ')}`);
+                delete this.lastOrderByPhone[userProfile.phone];
+            }
 
             switch (onboardingStep) {
                 case ONBOARDING_STEPS.NONE:
