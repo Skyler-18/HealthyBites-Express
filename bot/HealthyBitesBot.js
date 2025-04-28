@@ -1,4 +1,6 @@
 const { ActivityHandler, MessageFactory, CardFactory } = require('botbuilder');
+const fs = require('fs');
+const path = require('path');
 
 // Helper: Validate phone number (10 digits)
 function isValidPhoneNumber(phone) {
@@ -18,7 +20,30 @@ const ONBOARDING_STEPS = {
     UPDATE_OFFICE: 'UPDATE_OFFICE',
     UPDATE_HOME: 'UPDATE_HOME',
     UPDATE_HEARD: 'UPDATE_HEARD',
+    SHOW_MENU: 'SHOW_MENU',
 };
+
+function loadMenu() {
+    const menuPath = path.join(__dirname, '../public/menu.json');
+    return JSON.parse(fs.readFileSync(menuPath, 'utf8'));
+}
+
+function formatMenu(menu) {
+    let msg = `**Today's Menu**\n\n`;
+    msg += `**Lunch**\n`;
+    menu.Lunch.forEach(item => {
+        msg += `- ${item.name}: ${item.desc}\n`;
+    });
+    msg += `\n**Dinner**\n`;
+    menu.Dinner.forEach(item => {
+        msg += `- ${item.name}: ${item.desc}\n`;
+    });
+    msg += `\n**Extra Items**\n`;
+    menu.ExtraItems.forEach(item => {
+        msg += `- ${item.name}: ₹${item.price}\n`;
+    });
+    return msg;
+}
 
 class HealthyBitesBot extends ActivityHandler {
     constructor(User, conversationState, userState) {
@@ -63,10 +88,10 @@ class HealthyBitesBot extends ActivityHandler {
                         });
                         await onboardingStepAccessor.set(context, ONBOARDING_STEPS.ASK_UPDATE);
                         await context.sendActivity(MessageFactory.suggestedActions(['Yes', 'No'], 'Do you want to update this profile?'));
-                        break;
+                    } else {
+                        await onboardingStepAccessor.set(context, ONBOARDING_STEPS.ASK_NAME);
+                        await context.sendActivity('Great! What is your name?');
                     }
-                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.ASK_NAME);
-                    await context.sendActivity('Great! What is your name?');
                     break;
                 case ONBOARDING_STEPS.ASK_UPDATE:
                     if (text.toLowerCase() === 'yes' || text === 'Yes') {
@@ -74,7 +99,8 @@ class HealthyBitesBot extends ActivityHandler {
                         await context.sendActivity("Let's update your profile. What is your name?");
                     } else if (text.toLowerCase() === 'no' || text === 'No') {
                         await context.sendActivity('Okay, your profile remains unchanged.');
-                        await onboardingStepAccessor.set(context, ONBOARDING_STEPS.COMPLETE);
+                        await onboardingStepAccessor.set(context, ONBOARDING_STEPS.SHOW_MENU);
+                        await this.showMenuAndOrderButton(context, userProfile.phone);
                     } else {
                         await context.sendActivity(MessageFactory.suggestedActions(['Yes', 'No'], 'Do you want to update this profile?'));
                     }
@@ -118,7 +144,9 @@ class HealthyBitesBot extends ActivityHandler {
                     await context.sendActivity({
                         attachments: [this.profileAdaptiveCard(updatedUser)],
                     });
-                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.COMPLETE);
+                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.SHOW_MENU);
+                    // Show menu after update
+                    await this.showMenuAndOrderButton(context, userProfile.phone);
                     break;
                 case ONBOARDING_STEPS.ASK_NAME:
                     userProfile.name = text;
@@ -150,10 +178,19 @@ class HealthyBitesBot extends ActivityHandler {
                     await context.sendActivity({
                         attachments: [this.profileAdaptiveCard(newUser)],
                     });
-                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.COMPLETE);
+                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.SHOW_MENU);
+                    // Show menu after profile creation
+                    await this.showMenuAndOrderButton(context, userProfile.phone);
                     break;
                 case ONBOARDING_STEPS.COMPLETE:
                     await context.sendActivity('Your profile is already set up. If you want to update details, please contact support.');
+                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.SHOW_MENU);
+                    // Show menu after profile is shown and user denied update
+                    await this.showMenuAndOrderButton(context, userProfile.phone);
+                    break;
+                case ONBOARDING_STEPS.SHOW_MENU:
+                    // If user sends anything after menu, just show menu again
+                    await this.showMenuAndOrderButton(context, userProfile.phone);
                     break;
                 default:
                     await context.sendActivity('To get started, may I have your phone number?');
@@ -164,6 +201,37 @@ class HealthyBitesBot extends ActivityHandler {
             await this.conversationState.saveChanges(context);
             await this.userState.saveChanges(context);
             await next();
+        });
+    }
+
+    async showMenuAndOrderButton(context, phone) {
+        const menu = loadMenu();
+        await context.sendActivity({
+            text: formatMenu(menu),
+            textFormat: 'markdown',
+        });
+        await context.sendActivity({
+            attachments: [
+                CardFactory.adaptiveCard({
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.3",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "Click the button below to select food items you want to order.",
+                            "wrap": true
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "Order Now",
+                            "url": `http://localhost:3978/order?phone=${encodeURIComponent(phone)}`
+                        }
+                    ]
+                })
+            ]
         });
     }
 

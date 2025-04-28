@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Food - HealthyBites Express</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; background: #f8f8f8; }
+        h1, h2 { color: #2d7a2d; }
+        .section { margin-bottom: 2em; }
+        .menu-item { margin-bottom: 0.5em; }
+        .desc { color: #555; font-size: 0.95em; margin-left: 1.5em; }
+        .price { color: #0077cc; font-weight: bold; }
+        #user-id { margin-bottom: 1em; font-size: 1.1em; }
+        .submit-btn { background: #2d7a2d; color: #fff; border: none; padding: 0.7em 2em; font-size: 1em; border-radius: 5px; cursor: pointer; }
+        .submit-btn:hover { background: #256b25; }
+    </style>
+</head>
+<body>
+    <h1>Today's Menu</h1>
+    <div id="user-id"></div>
+    <form id="order-form">
+        <div id="menu"></div>
+        <button type="submit" class="submit-btn">Place Order</button>
+    </form>
+    <script>
+        // Get phone from query param
+        const urlParams = new URLSearchParams(window.location.search);
+        const phone = urlParams.get('phone');
+        document.getElementById('user-id').textContent = phone ? `Ordering as: ${phone}` : '';
+
+        // Fetch and render menu
+        fetch('/menu.json')
+            .then(res => res.json())
+            .then(menu => {
+                const menuDiv = document.getElementById('menu');
+                menuDiv.innerHTML = '';
+                function renderSection(title, items, isExtra) {
+                    let html = `<div class='section'><h2>${title}</h2>`;
+                    items.forEach(item => {
+                        const id = `${title}-${item.name}`.replace(/\s+/g, '-');
+                        html += `<div class='menu-item'>
+                            <input type='checkbox' id='${id}' name='order' value='${item.name}'>
+                            <label for='${id}'><b>${item.name}</b>${isExtra && item.price ? ` <span class='price'>₹${item.price}</span>` : ''}</label>
+                            ${item.desc ? `<div class='desc'>${item.desc}</div>` : ''}
+                        </div>`;
+                    });
+                    html += '</div>';
+                    return html;
+                }
+                menuDiv.innerHTML += renderSection('Lunch', menu.Lunch);
+                menuDiv.innerHTML += renderSection('Dinner', menu.Dinner);
+                menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+            });
+
+        // Placeholder for order submission
+        document.getElementById('order-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const checked = Array.from(document.querySelectorAll('input[name="order"]:checked')).map(cb => cb.value);
+            alert('Order placed for: ' + checked.join(', '));
+            // TODO: Send order to backend
+        });
+    </script>
+</body>
+</html> 

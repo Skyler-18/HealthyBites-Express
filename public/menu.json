@@ -1,0 +1,20 @@
+{
+  "Lunch": [
+    { "name": "Dal Makhani", "desc": "Creamy black lentils" },
+    { "name": "Jeera Rice", "desc": "Aromatic cumin rice" },
+    { "name": "Mixed Vegetables", "desc": "Seasonal vegetables" },
+    { "name": "Roti", "desc": "2 pieces" }
+  ],
+  "Dinner": [
+    { "name": "Paneer Butter Masala", "desc": "Rich tomato gravy" },
+    { "name": "Pulao", "desc": "Vegetable pulao" },
+    { "name": "Dal Tadka", "desc": "Yellow lentils" },
+    { "name": "Roti", "desc": "2 pieces" }
+  ],
+  "ExtraItems": [
+    { "name": "Raita", "price": 20 },
+    { "name": "Extra Roti", "price": 10 },
+    { "name": "Papad", "price": 10 },
+    { "name": "Sweet", "price": 25 }
+  ]
+} 

@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { BotFrameworkAdapter, MemoryStorage, ConversationState, UserState } = require('botbuilder');
 const Profile = require('./models/Profile');
 const { HealthyBitesBot } = require('./bot/HealthyBitesBot');
+const path = require('path');
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/HealthyBites', {
@@ -34,6 +35,14 @@ app.post('/api/messages', (req, res) => {
     adapter.processActivity(req, res, async (context) => {
         await bot.run(context);
     });
+});
+
+// Serve static files (order page and menu)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Route for /order (serves order.html)
+app.get('/order', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'order.html'));
 });
 
 const PORT = process.env.PORT || 3978;
