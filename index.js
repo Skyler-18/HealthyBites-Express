@@ -19,8 +19,8 @@ app.use(express.json());
 
 // Bot Framework Adapter
 const adapter = new BotFrameworkAdapter({
-    appId: process.env.MicrosoftAppId,
-    appPassword: process.env.MicrosoftAppPassword,
+    appId: process.env.MicrosoftAppId || '',
+    appPassword: process.env.MicrosoftAppPassword || '',
 });
 
 // State management

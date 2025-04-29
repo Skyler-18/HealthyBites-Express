@@ -1,6 +1,7 @@
-const { ActivityHandler, MessageFactory, CardFactory } = require('botbuilder');
+const { ActivityHandler, MessageFactory, CardFactory, TurnContext } = require('botbuilder');
 const fs = require('fs');
 const path = require('path');
+const Order = require('../models/Order');
 
 // Helper: Validate phone number (10 digits)
 function isValidPhoneNumber(phone) {
@@ -68,6 +69,49 @@ class HealthyBitesBot extends ActivityHandler {
             let onboardingStep = await onboardingStepAccessor.get(context, ONBOARDING_STEPS.NONE);
             let userProfile = await userProfileAccessor.get(context, {});
             const text = context.activity.text && context.activity.text.trim();
+
+            // Check for pending order for this user
+            let pendingOrder = null;
+            if (userProfile.phone) {
+                pendingOrder = await Order.findOne({ phone: userProfile.phone, status: 'Pending' }).sort({ date: -1 });
+            }
+
+            // Handle cancel order actions
+            if (context.activity.value && context.activity.value.action === 'cancel_order_confirm') {
+                // User confirmed cancellation
+                await Order.findByIdAndUpdate(context.activity.value.orderId, { status: 'Canceled' });
+                await context.sendActivity('Order cancelled successfully.');
+                return;
+            } else if (context.activity.value && context.activity.value.action === 'cancel_order') {
+                // Ask for confirmation
+                await context.sendActivity({
+                    attachments: [CardFactory.adaptiveCard({
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.3",
+                        "body": [
+                            { "type": "TextBlock", "text": "Are you sure you want to cancel your order?", "weight": "Bolder", "wrap": true }
+                        ],
+                        "actions": [
+                            { "type": "Action.Submit", "title": "Yes", "data": { action: "cancel_order_confirm", orderId: context.activity.value.orderId } },
+                            { "type": "Action.Submit", "title": "No", "data": { action: "cancel_order_deny", orderId: context.activity.value.orderId } }
+                        ]
+                    })]
+                });
+                return;
+            } else if (context.activity.value && context.activity.value.action === 'cancel_order_deny') {
+                // User denied cancellation, show order again
+                if (pendingOrder) {
+                    await this.sendOrderStatusCard(context, pendingOrder);
+                }
+                return;
+            }
+
+            // If pending order exists, show order status and cancel button
+            if (pendingOrder) {
+                await this.sendOrderStatusCard(context, pendingOrder);
+                return;
+            }
 
             // Check for new order for this user
             if (userProfile.phone && this.lastOrderByPhone[userProfile.phone]) {
@@ -198,7 +242,7 @@ class HealthyBitesBot extends ActivityHandler {
                     break;
                 case ONBOARDING_STEPS.SHOW_MENU:
                     // If user sends anything after menu, just show menu again
-                    await this.showMenuAndOrderButton(context, userProfile.phone);
+                    // (But now, do nothing if order is pending)
                     break;
                 default:
                     await context.sendActivity('To get started, may I have your phone number?');
@@ -240,6 +284,30 @@ class HealthyBitesBot extends ActivityHandler {
                     ]
                 })
             ]
+        });
+    }
+
+    async sendOrderStatusCard(context, order) {
+        // Load menu for price lookup
+        const menu = loadMenu();
+        const prices = {};
+        menu.Lunch.forEach(item => { prices[item.name] = 20; });
+        menu.Dinner.forEach(item => { prices[item.name] = 20; });
+        menu.ExtraItems.forEach(item => { prices[item.name] = item.price; });
+        const itemLines = order.items.map(item => `- ${item}: ₹${prices[item] || 20}`).join('\n');
+        await context.sendActivity({
+            attachments: [CardFactory.adaptiveCard({
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.3",
+                "body": [
+                    { "type": "TextBlock", "text": `We have received your order of Rs. ${order.total} for the following food items:`, "wrap": true },
+                    { "type": "TextBlock", "text": itemLines, "wrap": true },
+                ],
+                "actions": [
+                    { "type": "Action.Submit", "title": "Cancel Order", "data": { action: "cancel_order", orderId: order._id.toString() } }
+                ]
+            })]
         });
     }
 
