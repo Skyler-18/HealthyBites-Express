@@ -158,26 +158,299 @@
             document.getElementById('order-form').style.display = '';
         };
 
+        // Add after showSummary() and before confirm button logic
+        async function checkSubscriptionStatus(phone) {
+            const res = await fetch(`/api/profile?phone=${phone}`);
+            if (!res.ok) return { subscriptionStatus: 'None' };
+            return await res.json();
+        }
+
+        // Replace confirm button logic
         // Confirm button
-        document.querySelector('.confirm-btn').onclick = function() {
+        document.querySelector('.confirm-btn').onclick = async function() {
             const total = selectedItems.reduce((sum, item) => sum + prices[item], 0);
-            fetch('/api/order', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    phone,
-                    items: selectedItems,
-                    total,
-                    date: new Date().toISOString()
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
+            // Check subscription status
+            const profile = await checkSubscriptionStatus(phone);
+            if (["Monthly", "Monthly_Lunch", "Monthly_Dinner"].includes(profile.subscriptionStatus)) {
+                // User is subscribed, store order directly
+                await fetch('/api/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, items: selectedItems, total, date: new Date().toISOString() })
+                });
                 document.getElementById('summary-section').style.display = 'none';
                 document.getElementById('close-section').style.display = 'block';
                 document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
-            });
+            } else {
+                // Show payment/subscription options modal
+                showPaymentOptions(total);
+            }
         };
+
+        // Add payment/subscription modal logic
+        function showPaymentOptions(total) {
+            // Create modal if not exists
+            let modal = document.getElementById('payment-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'payment-modal';
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.width = '100vw';
+                modal.style.height = '100vh';
+                modal.style.background = 'rgba(0,0,0,0.4)';
+                modal.style.display = 'flex';
+                modal.style.alignItems = 'center';
+                modal.style.justifyContent = 'center';
+                modal.innerHTML = `
+                    <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:16px;max-width:370px;text-align:center;box-shadow:0 4px 24px #0002;">
+                        <h2 style='margin-bottom:1.5em;'>Choose an Option</h2>
+                        <button id="pay-today-btn" class="modal-btn primary-btn">Order for Today Only<br><span style='font-size:0.95em;color:#fff8;'>Pay ₹${total}</span></button><br>
+                        <button id="subscribe-btn" class="modal-btn secondary-btn">Subscribe for a Month</button><br>
+                        <button id="cancel-modal-btn" class="modal-btn cancel-btn">Cancel</button>
+                    </div>
+                    <style>
+                        .modal-btn {
+                            display: block;
+                            width: 90%;
+                            margin: 0.7em auto;
+                            padding: 1em 0;
+                            font-size: 1.15em;
+                            border: none;
+                            border-radius: 8px;
+                            cursor: pointer;
+                            transition: box-shadow 0.2s, background 0.2s, color 0.2s;
+                            font-weight: 600;
+                            box-shadow: 0 2px 8px #0001;
+                        }
+                        .primary-btn {
+                            background: linear-gradient(90deg, #43e97b 0%, #38f9d7 100%);
+                            color: #fff;
+                        }
+                        .primary-btn:hover {
+                            background: linear-gradient(90deg, #38f9d7 0%, #43e97b 100%);
+                            box-shadow: 0 4px 16px #43e97b44;
+                        }
+                        .secondary-btn {
+                            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+                            color: #fff;
+                        }
+                        .secondary-btn:hover {
+                            background: linear-gradient(90deg, #764ba2 0%, #667eea 100%);
+                            box-shadow: 0 4px 16px #667eea44;
+                        }
+                        .cancel-btn {
+                            background: #eee;
+                            color: #444;
+                        }
+                        .cancel-btn:hover {
+                            background: #ddd;
+                            color: #111;
+                        }
+                    </style>
+                `;
+                document.body.appendChild(modal);
+            } else {
+                modal.style.display = 'flex';
+            }
+            // Button handlers
+            document.getElementById('pay-today-btn').onclick = async function() {
+                // Dummy payment
+                await new Promise(r => setTimeout(r, 1000));
+                await fetch('/api/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, items: selectedItems, total, date: new Date().toISOString() })
+                });
+                modal.style.display = 'none';
+                document.getElementById('summary-section').style.display = 'none';
+                document.getElementById('close-section').style.display = 'block';
+                document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+            };
+            document.getElementById('subscribe-btn').onclick = function() {
+                showSubscriptionTypeModal(total);
+            };
+            document.getElementById('cancel-modal-btn').onclick = function() {
+                modal.style.display = 'none';
+                document.getElementById('summary-section').style.display = 'none';
+                showIncompleteOrderMessage();
+            };
+        }
+
+        function showSubscriptionTypeModal(orderTotal) {
+            let modal = document.getElementById('payment-modal');
+            modal.innerHTML = `
+                <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:18px;max-width:400px;text-align:center;box-shadow:0 4px 24px #0002;">
+                    <h2 style='margin-bottom:2em;'>Choose Your Subscription</h2>
+                    <div class="sub-btns-wrap">
+                        <button id="sub-lunch" class="sub-btn sub-lunch-btn">
+                            <span class="sub-icon">☀️</span>
+                            <span class="sub-label">Daily Lunch</span>
+                            <span class="sub-price">₹2000</span>
+                        </button>
+                        <button id="sub-dinner" class="sub-btn sub-dinner-btn">
+                            <span class="sub-icon">🌙</span>
+                            <span class="sub-label">Daily Dinner</span>
+                            <span class="sub-price">₹2000</span>
+                        </button>
+                        <button id="sub-both" class="sub-btn sub-both-btn">
+                            <span class="sub-icon">☀️+🌙</span>
+                            <span class="sub-label">Both (Lunch & Dinner)</span>
+                            <span class="sub-price">₹3500</span>
+                        </button>
+                    </div>
+                    <button id="cancel-sub-btn" class="sub-cancel-btn">Cancel</button>
+                </div>
+                <style>
+                    .sub-btns-wrap {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 1.2em;
+                        margin-bottom: 1.5em;
+                    }
+                    .sub-btn {
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        width: 100%;
+                        padding: 1.2em 1.5em;
+                        font-size: 1.18em;
+                        font-weight: 700;
+                        border: none;
+                        border-radius: 12px;
+                        box-shadow: 0 2px 12px #0001;
+                        cursor: pointer;
+                        transition: box-shadow 0.2s, background 0.2s, color 0.2s, transform 0.15s;
+                        margin: 0 auto;
+                        background: #f7f7f7;
+                        position: relative;
+                        outline: none;
+                    }
+                    .sub-btn .sub-icon {
+                        font-size: 1.5em;
+                        margin-right: 0.7em;
+                    }
+                    .sub-btn .sub-label {
+                        flex: 1;
+                        text-align: left;
+                    }
+                    .sub-btn .sub-price {
+                        font-size: 1.1em;
+                        color: #fff;
+                        background: #222;
+                        border-radius: 6px;
+                        padding: 0.25em 0.7em;
+                        margin-left: 1em;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }
+                    .sub-lunch-btn {
+                        background: linear-gradient(90deg, #f7971e 0%, #ffd200 100%);
+                        color: #fff;
+                    }
+                    .sub-lunch-btn:hover {
+                        background: linear-gradient(90deg, #ffd200 0%, #f7971e 100%);
+                        box-shadow: 0 6px 24px #ffd20055;
+                        transform: translateY(-2px) scale(1.03);
+                    }
+                    .sub-dinner-btn {
+                        background: linear-gradient(90deg, #4e54c8 0%, #8f94fb 100%);
+                        color: #fff;
+                    }
+                    .sub-dinner-btn:hover {
+                        background: linear-gradient(90deg, #8f94fb 0%, #4e54c8 100%);
+                        box-shadow: 0 6px 24px #8f94fb55;
+                        transform: translateY(-2px) scale(1.03);
+                    }
+                    .sub-both-btn {
+                        background: linear-gradient(90deg, #43cea2 0%, #185a9d 100%);
+                        color: #fff;
+                    }
+                    .sub-both-btn:hover {
+                        background: linear-gradient(90deg, #185a9d 0%, #43cea2 100%);
+                        box-shadow: 0 6px 24px #43cea255;
+                        transform: translateY(-2px) scale(1.03);
+                    }
+                    .sub-cancel-btn {
+                        margin-top: 0.5em;
+                        background: #eee;
+                        color: #444;
+                        border: none;
+                        border-radius: 8px;
+                        padding: 0.9em 2em;
+                        font-size: 1.08em;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: background 0.2s, color 0.2s;
+                    }
+                    .sub-cancel-btn:hover {
+                        background: #ddd;
+                        color: #111;
+                    }
+                </style>
+            `;
+            document.getElementById('sub-lunch').onclick = function() { handleSubscription('Monthly_Lunch', 2000, orderTotal); };
+            document.getElementById('sub-dinner').onclick = function() { handleSubscription('Monthly_Dinner', 2000, orderTotal); };
+            document.getElementById('sub-both').onclick = function() { handleSubscription('Monthly', 3500, orderTotal); };
+            document.getElementById('cancel-sub-btn').onclick = function() {
+                modal.style.display = 'none';
+                document.getElementById('summary-section').style.display = 'none';
+                showIncompleteOrderMessage();
+            };
+        }
+
+        async function handleSubscription(type, subAmount, orderTotal) {
+            let modal = document.getElementById('payment-modal');
+            // Dummy payment
+            await new Promise(r => setTimeout(r, 1000));
+            // Update profile subscription
+            await fetch('/api/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone, type })
+            });
+            // Store order
+            await fetch('/api/order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone, items: selectedItems, total: orderTotal, date: new Date().toISOString() })
+            });
+            modal.style.display = 'none';
+            document.getElementById('summary-section').style.display = 'none';
+            document.getElementById('close-section').style.display = 'block';
+            document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function showIncompleteOrderMessage() {
+            let modal = document.getElementById('incomplete-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'incomplete-modal';
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.width = '100vw';
+                modal.style.height = '100vh';
+                modal.style.background = 'rgba(0,0,0,0.4)';
+                modal.style.display = 'flex';
+                modal.style.alignItems = 'center';
+                modal.style.justifyContent = 'center';
+                modal.innerHTML = `
+                    <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:10px;max-width:350px;text-align:center;">
+                        <h2>Order Not Completed</h2>
+                        <div style='margin:1em 0 2em 0;'>Your order was not completed and will be discarded.</div>
+                        <button id="close-incomplete-btn" style="background:#2d7a2d;color:#fff;padding:0.7em 2em;border:none;border-radius:5px;">Close</button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } else {
+                modal.style.display = 'flex';
+            }
+            document.getElementById('close-incomplete-btn').onclick = function() {
+                modal.style.display = 'none';
+            };
+        }
 
         // Close window button
         document.querySelector('.close-btn').onclick = function() {

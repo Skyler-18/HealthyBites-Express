@@ -54,6 +54,28 @@ app.post('/api/order', async (req, res) => {
     res.json({ success: true });
 });
 
+// API endpoint to get profile subscription status
+app.get('/api/profile', async (req, res) => {
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ error: 'Missing phone' });
+    const profile = await Profile.findOne({ phone });
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    res.json({ subscriptionStatus: profile.subscriptionStatus, subscriptionEndDate: profile.subscriptionEndDate });
+});
+
+// API endpoint to update subscription
+app.post('/api/subscribe', async (req, res) => {
+    const { phone, type } = req.body;
+    if (!phone || !type) return res.status(400).json({ error: 'Missing phone or type' });
+    const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await Profile.findOneAndUpdate(
+        { phone },
+        { subscriptionStatus: type, subscriptionEndDate: endDate },
+        { new: true }
+    );
+    res.json({ success: true });
+});
+
 // Serve static files (order page and menu)
 app.use(express.static(path.join(__dirname, 'public')));
 
