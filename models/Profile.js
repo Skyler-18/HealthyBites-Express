@@ -10,6 +10,7 @@ const userSchema = new mongoose.Schema({
     subscriptionEndDate: { type: Date },
     order_lunch: [String],
     order_dinner: [String],
+    conversationReference: { type: mongoose.Schema.Types.Mixed },
 });
 
 const Profile = mongoose.model('Profiles', userSchema);

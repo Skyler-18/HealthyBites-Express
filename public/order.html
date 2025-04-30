@@ -65,8 +65,7 @@
         <div id="close-section">
             <h2>Order Placed!</h2>
             <div style="margin:1em 0 2em 0;">
-                You can close this window now.<br>
-                <span style="color:#2d7a2d; font-weight:bold;">To view your order details, please return to the chatbot and send any message (for example, type <b>check</b>).</span>
+                You can close this window. If you wish, you can cancel your order between 8:35am to 9am for lunch and between 4:35pm to 5pm for dinner.
             </div>
             <button class="close-btn">Close Window</button>
         </div>
@@ -99,7 +98,7 @@
                     return nowMins >= start && nowMins <= end;
                 }
                 const isLunchTime = inRange(6, 0, 8, 30);
-                const isDinnerTime = inRange(13, 0, 16, 30);
+                const isDinnerTime = inRange(14, 0, 16, 30);
                 function renderSection(title, items, isExtra) {
                     let html = `<div class='section'><h2>${title}</h2>`;
                     items.forEach(item => {
@@ -134,7 +133,7 @@
                             const disableMsg = disable ? 'You have subscribed for lunch plan so you can\'t save orders for dinner.' : '';
                             addSaveDefaultButton('dinner', disable, disableMsg);
                         } else {
-                            menuDiv.innerHTML = `<div style='text-align:center;font-size:1.2em;margin:2em 0;'>We take orders only between 6AM and 8:30AM for lunch and 1PM and 4:30PM for dinner.</div>`;
+                            menuDiv.innerHTML = `<div style='text-align:center;font-size:1.2em;margin:2em 0;'>We take orders only between 6AM and 8:30AM for lunch and 2PM and 4:30PM for dinner.</div>`;
                             document.querySelector('.submit-btn').style.display = 'none';
                         }
                         updateBill();

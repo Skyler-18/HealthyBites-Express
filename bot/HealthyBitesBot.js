@@ -70,19 +70,48 @@ class HealthyBitesBot extends ActivityHandler {
             let userProfile = await userProfileAccessor.get(context, {});
             const text = context.activity.text && context.activity.text.trim();
 
+            // Feedback window check
+            const now = new Date();
+            // Feedback window: 13:30–13:55 (lunch), 20:30–21:30 (dinner)
+            const isLunchFeedbackWindow = (now.getHours() === 13 && now.getMinutes() >= 30 && now.getMinutes() <= 55);
+            const isDinnerFeedbackWindow = 
+                (now.getHours() === 20 && now.getMinutes() >= 30) ||
+                (now.getHours() === 21 && now.getMinutes() <= 30);
+            if (userProfile.phone && text && (isLunchFeedbackWindow || isDinnerFeedbackWindow)) {
+                // Store feedback in latest delivered order
+                const latestOrder = await Order.findOne({ phone: userProfile.phone, status: 'Delivered' }).sort({ date: -1 });
+                if (latestOrder) { 
+                    await Order.findByIdAndUpdate(latestOrder._id, { feedback: text });
+                    await context.sendActivity('Thank you for your feedback!');
+                    return;
+                }
+            }
+
             // Check for pending order for this user
             let pendingOrder = null;
             if (userProfile.phone) {
                 pendingOrder = await Order.findOne({ phone: userProfile.phone, status: 'Pending' }).sort({ date: -1 });
             }
 
-            // Handle cancel order actions
-            if (context.activity.value && context.activity.value.action === 'cancel_order_confirm') {
-                // User confirmed cancellation
-                await Order.findByIdAndUpdate(context.activity.value.orderId, { status: 'Canceled' });
-                await context.sendActivity('Order cancelled successfully.');
-                return;
-            } else if (context.activity.value && context.activity.value.action === 'cancel_order') {
+            // Handle cancel order actions (from proactive card)
+            if (context.activity.value && context.activity.value.action === 'cancel_order') {
+                // Check if within allowed window
+                const now = new Date();
+                let allowed = false;
+                let windowType = context.activity.value.windowType;
+                if (windowType === 'lunch') {
+                    // 8:35am to 9:00am
+                    const mins = now.getHours() * 60 + now.getMinutes();
+                    allowed = mins >= (8 * 60 + 35) && mins <= (9 * 60);
+                } else if (windowType === 'dinner') {
+                    // 4:35pm to 5:00pm
+                    const mins = now.getHours() * 60 + now.getMinutes();
+                    allowed = mins >= (16 * 60 + 35) && mins <= (17 * 60);
+                }
+                if (!allowed) {
+                    await context.sendActivity('You cannot cancel your order now.');
+                    return;
+                }
                 // Ask for confirmation
                 await context.sendActivity({
                     attachments: [CardFactory.adaptiveCard({
@@ -99,11 +128,14 @@ class HealthyBitesBot extends ActivityHandler {
                     })]
                 });
                 return;
+            } else if (context.activity.value && context.activity.value.action === 'cancel_order_confirm') {
+                // User confirmed cancellation
+                await Order.findByIdAndUpdate(context.activity.value.orderId, { status: 'Canceled' });
+                await context.sendActivity('Order cancelled successfully.');
+                return;
             } else if (context.activity.value && context.activity.value.action === 'cancel_order_deny') {
-                // User denied cancellation, show order again
-                if (pendingOrder) {
-                    await this.sendOrderStatusCard(context, pendingOrder);
-                }
+                // User denied cancellation
+                await context.sendActivity('Your order was not cancelled.');
                 return;
             }
 
@@ -269,7 +301,7 @@ class HealthyBitesBot extends ActivityHandler {
             return nowMins >= start && nowMins <= end;
         }
         const isLunchTime = inRange(6, 0, 8, 30);
-        const isDinnerTime = inRange(13, 0, 16, 30);
+        const isDinnerTime = inRange(14, 0, 16, 30);
         if (isLunchTime || isDinnerTime) {
             const menu = loadMenu();
             await context.sendActivity({
@@ -320,10 +352,8 @@ class HealthyBitesBot extends ActivityHandler {
                 "body": [
                     { "type": "TextBlock", "text": `We have received your order of Rs. ${order.total} for the following food items:`, "wrap": true },
                     { "type": "TextBlock", "text": itemLines, "wrap": true },
-                ],
-                "actions": [
-                    { "type": "Action.Submit", "title": "Cancel Order", "data": { action: "cancel_order", orderId: order._id.toString() } }
                 ]
+                // No actions (no cancel button)
             })]
         });
     }

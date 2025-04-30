@@ -66,6 +66,12 @@ app.post('/api/messages', (req, res) => {
             if (userProfile && userProfile.phone) {
                 phone = userProfile.phone;
                 conversationReferences[phone] = reference;
+                // Persist conversation reference in Profile
+                await Profile.findOneAndUpdate(
+                    { phone },
+                    { conversationReference: reference },
+                    { new: true }
+                );
             }
         } catch (e) {}
         await bot.run(context);
@@ -150,6 +156,16 @@ async function sendProactiveMenu(phone, name, greeting) {
             }
         }
     }
+    // If still not found, try to load from Profile in DB
+    if (!conversationReference) {
+        const profile = await Profile.findOne({ phone });
+        if (profile && profile.conversationReference) {
+            conversationReference = profile.conversationReference;
+            // Optionally cache in memory for next time
+            conversationReferences[phone] = conversationReference;
+            console.log('Loaded conversation reference from DB for', phone);
+        }
+    }
     if (!conversationReference) {
         console.log(`No conversation reference for phone or userId: ${phone}. Skipping proactive message.`);
         return;
@@ -187,7 +203,7 @@ async function sendProactiveMenu(phone, name, greeting) {
 }
 
 // Schedule 6AM Good Morning (for testing, runs every minute)
-cron.schedule('11 14 * * *', async () => {
+cron.schedule('00 06 * * *', async () => {
     console.log('Cron job running...');
     const users = await Profile.find({});
     for (const user of users) {
@@ -196,7 +212,7 @@ cron.schedule('11 14 * * *', async () => {
     }
 });
 // Schedule 2PM Good Afternoon
-cron.schedule('07 14 * * *', async () => {
+cron.schedule('00 14 * * *', async () => {
     const users = await Profile.find({});
     for (const user of users) {
         await sendProactiveMenu(user.phone, user.name, 'Good Afternoon');
@@ -208,30 +224,158 @@ cron.schedule('31 8 * * *', async () => {
     const users = await Profile.find({ $or: [ { subscriptionStatus: 'Monthly_Lunch' }, { subscriptionStatus: 'Monthly' } ] });
     for (const user of users) {
         if (user.order_lunch && user.order_lunch.length > 0) {
-            await Order.create({
-                phone: user.phone,
-                items: user.order_lunch,
-                total: 0, // Subscription order
-                date: new Date(),
-                status: 'Pending'
-            });
+            // Check for existing pending order
+            const existing = await Order.findOne({ phone: user.phone, status: 'Pending' });
+            if (!existing) {
+                await Order.create({
+                    phone: user.phone,
+                    items: user.order_lunch,
+                    total: 0, // Subscription order
+                    date: new Date(),
+                    status: 'Pending'
+                });
+            }
         }
     }
 });
 // Cron job for 4:31PM: create orders for MONTHLY_DINNER and MONTHLY
-cron.schedule('01 14 * * *', async () => {
+cron.schedule('31 14 * * *', async () => {
     const users = await Profile.find({ $or: [ { subscriptionStatus: 'Monthly_Dinner' }, { subscriptionStatus: 'Monthly' } ] });
     for (const user of users) {
         if (user.order_dinner && user.order_dinner.length > 0) {
-            await Order.create({
-                phone: user.phone,
-                items: user.order_dinner,
-                total: 0, // Subscription order
-                date: new Date(),
-                status: 'Pending'
-            });
+            // Check for existing pending order
+            const existing = await Order.findOne({ phone: user.phone, status: 'Pending' });
+            if (!existing) {
+                await Order.create({
+                    phone: user.phone,
+                    items: user.order_dinner,
+                    total: 0, // Subscription order
+                    date: new Date(),
+                    status: 'Pending'
+                });
+            }
         }
     }
+});
+
+// Helper to send proactive cancel message
+async function sendProactiveCancelOrder(order, windowType) {
+    // windowType: 'lunch' or 'dinner'
+    // Load conversation reference from Profile
+    const profile = await Profile.findOne({ phone: order.phone });
+    if (!profile || !profile.conversationReference) return;
+    await adapter.continueConversation(profile.conversationReference, async (context) => {
+        // Load menu for price lookup
+        const menu = loadMenu();
+        const prices = {};
+        menu.Lunch.forEach(item => { prices[item.name] = 20; });
+        menu.Dinner.forEach(item => { prices[item.name] = 20; });
+        menu.ExtraItems.forEach(item => { prices[item.name] = item.price; });
+        const itemLines = order.items.map(item => `- ${item}: ₹${prices[item] || 20}`).join('\n');
+        await context.sendActivity({
+            attachments: [CardFactory.adaptiveCard({
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.3",
+                "body": [
+                    { "type": "TextBlock", "text": `Your order of Rs. ${order.total} for the following food items:`, "wrap": true },
+                    { "type": "TextBlock", "text": itemLines, "wrap": true },
+                ],
+                "actions": [
+                    { "type": "Action.Submit", "title": "Cancel Order", "data": { action: "cancel_order", orderId: order._id.toString(), windowType } }
+                ]
+            })]
+        });
+    });
+}
+// Cron job for 8:35AM: send cancel option for lunch orders
+cron.schedule('35 8 * * *', async () => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfLunchCancelWindow = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 35, 0);
+    const orders = await Order.find({
+        status: 'Pending',
+        date: { $gte: startOfDay, $lt: endOfLunchCancelWindow }
+    });
+    for (const order of orders) {
+        await sendProactiveCancelOrder(order, 'lunch');
+    }
+});
+// Cron job for 4:35PM: send cancel option for dinner orders
+cron.schedule('35 16 * * *', async () => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfDinnerCancelWindow = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 16, 35, 0);
+    const orders = await Order.find({
+        status: 'Pending',
+        date: { $gte: startOfDay, $lt: endOfDinnerCancelWindow }
+    });
+    for (const order of orders) {
+        await sendProactiveCancelOrder(order, 'dinner');
+    }
+});
+
+// Helper: Promise with timeout
+function withTimeout(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms))
+    ]);
+}
+
+// Helper to send feedback request message
+async function sendProactiveFeedbackRequest(order) {
+    const profile = await Profile.findOne({ phone: order.phone });
+    if (!profile || !profile.conversationReference) return;
+    await adapter.continueConversation(profile.conversationReference, async (context) => {
+        await context.sendActivity('Hope you have received your order. Please share your feedback about our service.');
+    });
+}
+// Cron job for 1:30PM: send feedback request and mark delivered
+cron.schedule('30 13 * * *', async () => {
+    const orders = await Order.find({ status: 'Pending' });
+    console.log('[Feedback Cron] Found', orders.length, 'pending orders for feedback (1:30PM)');
+    for (const order of orders) {
+        console.log('[Feedback Cron] Processing order', order._id, order.phone);
+        try {
+            await withTimeout(sendProactiveFeedbackRequest(order), 5000); // 5 seconds timeout
+            console.log('[Feedback Cron] Processed order', order._id, order.phone);
+        } catch (e) {
+            console.error('[Feedback Cron] Error processing order', order._id, e);
+        }
+        // Always update status, even if message fails
+        try {
+            await Order.findByIdAndUpdate(order._id, { status: 'Delivered' });
+        } catch (e) {
+            console.error('[Feedback Cron] Error updating order status', order._id, e);
+        }
+    }
+    // Debug: log pending orders after update
+    const pendingOrdersAfter = await Order.find({ status: 'Pending' });
+    console.log('[Feedback Cron] Pending orders after update:', pendingOrdersAfter.map(o => o._id.toString()));
+});
+// Cron job for 8:30PM: send feedback request and mark delivered
+cron.schedule('30 20 * * *', async () => {
+    const orders = await Order.find({ status: 'Pending' });
+    console.log('[Feedback Cron] Found', orders.length, 'pending orders for feedback (8:30PM)');
+    for (const order of orders) {
+        console.log('[Feedback Cron] Processing order', order._id, order.phone);
+        try {
+            await withTimeout(sendProactiveFeedbackRequest(order), 5000); // 5 seconds timeout
+            console.log('[Feedback Cron] Processed order', order._id, order.phone);
+        } catch (e) {
+            console.error('[Feedback Cron] Error processing order', order._id, e);
+        }
+        // Always update status, even if message fails
+        try {
+            await Order.findByIdAndUpdate(order._id, { status: 'Delivered' });
+        } catch (e) {
+            console.error('[Feedback Cron] Error updating order status', order._id, e);
+        }
+    }
+    // Debug: log pending orders after update
+    const pendingOrdersAfter = await Order.find({ status: 'Pending' });
+    console.log('[Feedback Cron] Pending orders after update:', pendingOrdersAfter.map(o => o._id.toString()));
 });
 
 // Manual endpoint to test proactive messaging
