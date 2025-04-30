@@ -107,6 +107,23 @@ app.post('/api/subscribe', async (req, res) => {
     res.json({ success: true });
 });
 
+// API endpoint to save default order for lunch or dinner
+app.post('/api/save-default-order', async (req, res) => {
+    const { phone, items, type } = req.body;
+    if (!phone || !items || !type || !['lunch', 'dinner'].includes(type)) {
+        return res.status(400).json({ error: 'Missing or invalid fields' });
+    }
+    const update = {};
+    if (type === 'lunch') update.order_lunch = items;
+    if (type === 'dinner') update.order_dinner = items;
+    await Profile.findOneAndUpdate(
+        { phone },
+        update,
+        { new: true }
+    );
+    res.json({ success: true });
+});
+
 // Serve static files (order page and menu)
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -170,7 +187,7 @@ async function sendProactiveMenu(phone, name, greeting) {
 }
 
 // Schedule 6AM Good Morning (for testing, runs every minute)
-cron.schedule('* 6 * * *', async () => {
+cron.schedule('11 14 * * *', async () => {
     console.log('Cron job running...');
     const users = await Profile.find({});
     for (const user of users) {
@@ -179,10 +196,41 @@ cron.schedule('* 6 * * *', async () => {
     }
 });
 // Schedule 2PM Good Afternoon
-cron.schedule('* 14 * * *', async () => {
+cron.schedule('07 14 * * *', async () => {
     const users = await Profile.find({});
     for (const user of users) {
         await sendProactiveMenu(user.phone, user.name, 'Good Afternoon');
+    }
+});
+
+// Cron job for 8:31AM: create orders for MONTHLY_LUNCH and MONTHLY
+cron.schedule('31 8 * * *', async () => {
+    const users = await Profile.find({ $or: [ { subscriptionStatus: 'Monthly_Lunch' }, { subscriptionStatus: 'Monthly' } ] });
+    for (const user of users) {
+        if (user.order_lunch && user.order_lunch.length > 0) {
+            await Order.create({
+                phone: user.phone,
+                items: user.order_lunch,
+                total: 0, // Subscription order
+                date: new Date(),
+                status: 'Pending'
+            });
+        }
+    }
+});
+// Cron job for 4:31PM: create orders for MONTHLY_DINNER and MONTHLY
+cron.schedule('01 14 * * *', async () => {
+    const users = await Profile.find({ $or: [ { subscriptionStatus: 'Monthly_Dinner' }, { subscriptionStatus: 'Monthly' } ] });
+    for (const user of users) {
+        if (user.order_dinner && user.order_dinner.length > 0) {
+            await Order.create({
+                phone: user.phone,
+                items: user.order_dinner,
+                total: 0, // Subscription order
+                date: new Date(),
+                status: 'Pending'
+            });
+        }
     }
 });
 

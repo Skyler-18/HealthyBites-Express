@@ -99,7 +99,7 @@
                     return nowMins >= start && nowMins <= end;
                 }
                 const isLunchTime = inRange(6, 0, 8, 30);
-                const isDinnerTime = inRange(14, 0, 16, 30);
+                const isDinnerTime = inRange(13, 0, 16, 30);
                 function renderSection(title, items, isExtra) {
                     let html = `<div class='section'><h2>${title}</h2>`;
                     items.forEach(item => {
@@ -115,17 +115,30 @@
                     html += '</div>';
                     return html;
                 }
-                if (isLunchTime) {
-                    menuDiv.innerHTML += renderSection('Lunch', menu.Lunch);
-                    menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
-                } else if (isDinnerTime) {
-                    menuDiv.innerHTML += renderSection('Dinner', menu.Dinner);
-                    menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
-                } else {
-                    menuDiv.innerHTML = `<div style='text-align:center;font-size:1.2em;margin:2em 0;'>We take orders only between 6AM and 8:30AM for lunch and 2PM and 4:30PM for dinner.</div>`;
-                    document.querySelector('.submit-btn').style.display = 'none';
-                }
-                updateBill();
+                // Fetch profile to check subscription status for Save Default button logic
+                fetch(`/api/profile?phone=${phone}`)
+                    .then(res => res.json())
+                    .then(profile => {
+                        if (isLunchTime) {
+                            menuDiv.innerHTML += renderSection('Lunch', menu.Lunch);
+                            menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+                            // Add Save Default button and info
+                            const disable = profile.subscriptionStatus === 'Monthly_Dinner';
+                            const disableMsg = disable ? 'You have subscribed for dinner plan so you can\'t save orders for lunch.' : '';
+                            addSaveDefaultButton('lunch', disable, disableMsg);
+                        } else if (isDinnerTime) {
+                            menuDiv.innerHTML += renderSection('Dinner', menu.Dinner);
+                            menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+                            // Add Save Default button and info
+                            const disable = profile.subscriptionStatus === 'Monthly_Lunch';
+                            const disableMsg = disable ? 'You have subscribed for lunch plan so you can\'t save orders for dinner.' : '';
+                            addSaveDefaultButton('dinner', disable, disableMsg);
+                        } else {
+                            menuDiv.innerHTML = `<div style='text-align:center;font-size:1.2em;margin:2em 0;'>We take orders only between 6AM and 8:30AM for lunch and 1PM and 4:30PM for dinner.</div>`;
+                            document.querySelector('.submit-btn').style.display = 'none';
+                        }
+                        updateBill();
+                    });
             });
 
         // Bill calculation
@@ -497,6 +510,61 @@
         document.querySelector('.close-btn').onclick = function() {
             window.close();
         };
+
+        // Add Save Default button and info message
+        function addSaveDefaultButton(type, disabled, disableMsg) {
+            // Only add if not already present
+            if (document.getElementById('save-default-btn')) return;
+            const form = document.getElementById('order-form');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = 'save-default-btn';
+            btn.className = 'submit-btn';
+            btn.style.background = '#0077cc';
+            btn.style.marginTop = '0.5em';
+            btn.textContent = 'Save these items for everyday';
+            if (disabled) {
+                btn.disabled = true;
+                btn.style.opacity = '0.6';
+            }
+            const info = document.createElement('div');
+            info.style.fontSize = '0.98em';
+            info.style.margin = '0.5em 0 1.2em 0';
+            info.style.color = '#444';
+            info.innerHTML = disableMsg || "If on some day you don't select food items to order these default items will be stored as the order. You can cancel your order though if you don't want to receive on that particular day.";
+            form.appendChild(btn);
+            form.appendChild(info);
+            btn.onclick = async function() {
+                selectedItems = Array.from(document.querySelectorAll('input[name="order"]:checked')).map(cb => cb.value);
+                if (selectedItems.length === 0) {
+                    alert('Please select at least one item to save as default.');
+                    return;
+                }
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+                try {
+                    const res = await fetch('/api/save-default-order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone, items: selectedItems, type })
+                    });
+                    if (res.ok) {
+                        btn.textContent = 'Saved!';
+                        info.innerHTML = `These items are now saved as your default ${type === 'lunch' ? 'lunch' : 'dinner'} order for every day.`;
+                    } else {
+                        btn.textContent = 'Save these items for everyday';
+                        alert('Failed to save default order.');
+                    }
+                } catch (e) {
+                    btn.textContent = 'Save these items for everyday';
+                    alert('Failed to save default order.');
+                }
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = 'Save these items for everyday';
+                }, 2000);
+            };
+        }
     </script>
 </body>
 </html> 

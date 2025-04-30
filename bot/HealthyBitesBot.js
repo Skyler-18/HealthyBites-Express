@@ -269,7 +269,7 @@ class HealthyBitesBot extends ActivityHandler {
             return nowMins >= start && nowMins <= end;
         }
         const isLunchTime = inRange(6, 0, 8, 30);
-        const isDinnerTime = inRange(14, 0, 16, 30);
+        const isDinnerTime = inRange(13, 0, 16, 30);
         if (isLunchTime || isDinnerTime) {
             const menu = loadMenu();
             await context.sendActivity({
