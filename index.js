@@ -130,6 +130,74 @@ app.post('/api/save-default-order', async (req, res) => {
     res.json({ success: true });
 });
 
+// API endpoint to apply referral code (validate only, no DB update)
+app.post('/api/apply-referral', async (req, res) => {
+    const { phone, referralCode, amount } = req.body;
+    if (!phone || !referralCode || typeof amount !== 'number') {
+        return res.status(400).json({ success: false, message: 'Missing fields.' });
+    }
+    if (amount < 50) {
+        return res.status(400).json({ success: false, message: 'Referral code can only be used for payments above ₹50.' });
+    }
+    const user = await Profile.findOne({ phone });
+    if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    if (user.referralCode && user.referralCode.toUpperCase() === referralCode.toUpperCase()) {
+        return res.status(400).json({ success: false, message: 'You cannot use your own referral code.' });
+    }
+    if (user.allReferralsUsed && user.allReferralsUsed.includes(referralCode.toUpperCase())) {
+        return res.status(400).json({ success: false, message: 'You can use a particular referral code only once.' });
+    }
+    const codeOwner = await Profile.findOne({ referralCode: referralCode.toUpperCase() });
+    if (!codeOwner) {
+        return res.status(404).json({ success: false, message: 'Invalid referral code.' });
+    }
+    // Only validate, do not update DB
+    return res.json({ success: true, newAmount: amount - 50, message: 'Referral applied! ₹50 discount.' });
+});
+
+// API endpoint to confirm referral and place order (update DB)
+app.post('/api/confirm-referral-order', async (req, res) => {
+    const { phone, referralCode, amount, items, date } = req.body;
+    if (!phone || !referralCode || typeof amount !== 'number' || !items || !date) {
+        return res.status(400).json({ success: false, message: 'Missing fields.' });
+    }
+    if (amount < 50) {
+        return res.status(400).json({ success: false, message: 'Referral code can only be used for payments above ₹50.' });
+    }
+    const user = await Profile.findOne({ phone });
+    if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    if (user.referralCode && user.referralCode.toUpperCase() === referralCode.toUpperCase()) {
+        return res.status(400).json({ success: false, message: 'You cannot use your own referral code.' });
+    }
+    if (user.allReferralsUsed && user.allReferralsUsed.includes(referralCode.toUpperCase())) {
+        return res.status(400).json({ success: false, message: 'You can use a particular referral code only once.' });
+    }
+    const codeOwner = await Profile.findOne({ referralCode: referralCode.toUpperCase() });
+    if (!codeOwner) {
+        return res.status(404).json({ success: false, message: 'Invalid referral code.' });
+    }
+    // Update code owner
+    await Profile.updateOne(
+        { _id: codeOwner._id },
+        { $inc: { successfulReferralsGiven: 1 } }
+    );
+    // Update user
+    await Profile.updateOne(
+        { _id: user._id },
+        { $inc: { referralsUsed: 1 }, $push: { allReferralsUsed: referralCode.toUpperCase() } }
+    );
+    // Place the order
+    const order = new Order({ phone, items, total: amount - 50, date });
+    await order.save();
+    // Store for bot to notify on next message
+    lastOrderByPhone[phone] = { items, total: amount - 50 };
+    return res.json({ success: true });
+});
+
 // Serve static files (order page and menu)
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -212,7 +280,7 @@ cron.schedule('00 06 * * *', async () => {
     }
 });
 // Schedule 2PM Good Afternoon
-cron.schedule('00 14 * * *', async () => {
+cron.schedule('27 21 * * *', async () => {
     const users = await Profile.find({});
     for (const user of users) {
         await sendProactiveMenu(user.phone, user.name, 'Good Afternoon');
@@ -381,7 +449,6 @@ cron.schedule('30 20 * * *', async () => {
 // Manual endpoint to test proactive messaging
 app.get('/api/test-proactive', async (req, res) => {
     // Use a known phone or userId from conversationReferences
-    // You can pass ?phone=1234567890 or it will use the first available
     let phone = req.query.phone;
     if (!phone) {
         // Try to get the first phone in conversationReferences

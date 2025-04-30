@@ -11,6 +11,10 @@ const userSchema = new mongoose.Schema({
     order_lunch: [String],
     order_dinner: [String],
     conversationReference: { type: mongoose.Schema.Types.Mixed },
+    referralCode: { type: String, unique: true, uppercase: true },
+    successfulReferralsGiven: { type: Number, default: 0 },
+    referralsUsed: { type: Number, default: 0 },
+    allReferralsUsed: { type: [String], default: [] },
 });
 
 const Profile = mongoose.model('Profiles', userSchema);

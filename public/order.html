@@ -98,7 +98,7 @@
                     return nowMins >= start && nowMins <= end;
                 }
                 const isLunchTime = inRange(6, 0, 8, 30);
-                const isDinnerTime = inRange(14, 0, 16, 30);
+                const isDinnerTime = inRange(14, 0, 23, 30);
                 function renderSection(title, items, isExtra) {
                     let html = `<div class='section'><h2>${title}</h2>`;
                     items.forEach(item => {
@@ -213,7 +213,7 @@
                 return nowMins >= start && nowMins <= end;
             }
             const isLunchTime = inRange(6, 0, 8, 30);
-            const isDinnerTime = inRange(14, 0, 16, 30);
+            const isDinnerTime = inRange(14, 0, 23, 30);
             // Subscription logic
             if (profile.subscriptionStatus === "Monthly" ||
                 (profile.subscriptionStatus === "Monthly_Lunch" && isLunchTime) ||
@@ -262,9 +262,9 @@
             modal.innerHTML = `
                 <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:16px;max-width:370px;text-align:center;box-shadow:0 4px 24px #0002;">
                     <h2 style='margin-bottom:1.5em;'>Choose an Option</h2>
-                    <button id="pay-today-btn" class="modal-btn primary-btn">Order for Today Only<br><span style='font-size:0.95em;color:#fff8;'>Pay ₹${total}</span></button><br>
-                    ${restrictToPayToday ? '' : '<button id="subscribe-btn" class="modal-btn secondary-btn">Subscribe for a Month</button><br>'}
-                    <button id="cancel-modal-btn" class="modal-btn cancel-btn">Cancel</button>
+                    <button id="pay-today-btn" class="modal-btn primary-btn" style="margin-bottom:1em;font-size:1.13em;padding:1.1em 0;border-radius:10px;letter-spacing:0.5px;">Order for Today Only<br><span style='font-size:1.05em;color:#fff8;font-weight:600;'>Pay ₹${total}</span></button><br>
+                    ${restrictToPayToday ? '' : '<button id="subscribe-btn" class="modal-btn secondary-btn" style="margin-bottom:1em;font-size:1.13em;padding:1.1em 0;border-radius:10px;letter-spacing:0.5px;">Subscribe for a Month</button><br>'}
+                    <button id="cancel-modal-btn" class="modal-btn cancel-btn" style="font-size:1.08em;padding:0.9em 0;border-radius:10px;">Cancel</button>
                 </div>
                 <style>
                     .modal-btn {
@@ -307,17 +307,102 @@
                 </style>
             `;
             document.getElementById('pay-today-btn').onclick = async function() {
-                // Dummy payment
-                await new Promise(r => setTimeout(r, 1000));
-                await fetch('/api/order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, items: selectedItems, total, date: new Date().toISOString() })
-                });
-                modal.style.display = 'none';
-                document.getElementById('summary-section').style.display = 'none';
-                document.getElementById('close-section').style.display = 'block';
-                document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+                // Referral code logic
+                if (total < 50) {
+                    alert('Referral code can only be used for payments above ₹50.');
+                    // Return to summary screen instead of placing order
+                    modal.style.display = 'none';
+                    document.getElementById('summary-section').style.display = 'block';
+                    return;
+                }
+                // Show referral code modal
+                modal.innerHTML = `
+                    <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:18px;max-width:400px;text-align:center;box-shadow:0 4px 24px #0003;">
+                        <h2 style='margin-bottom:1em;color:#2d7a2d;'>Referral Code</h2>
+                        <div style='margin-bottom:1em;font-size:1.08em;color:#444;'>Enter referral code to avail <b>₹50 discount</b> (if you have one)</div>
+                        <input id="referral-input" type="text" maxlength="10" style="width:85%;padding:0.9em 1em;font-size:1.13em;border-radius:8px;border:1.5px solid #43e97b;margin-bottom:1.2em;outline:none;transition:border 0.2s;" placeholder="Referral Code" onfocus="this.style.borderColor='#38f9d7'" onblur="this.style.borderColor='#43e97b'">
+                        <div id="referral-error" style="color:#c00;font-size:1em;margin-bottom:1em;"></div>
+                        <div style="display:flex;gap:1em;justify-content:center;">
+                            <button id="apply-referral-btn" class="modal-btn primary-btn" style="flex:1;background:linear-gradient(90deg,#43e97b 0%,#38f9d7 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #43e97b22;">Apply</button>
+                            <button id="skip-referral-btn" class="modal-btn secondary-btn" style="flex:1;background:linear-gradient(90deg,#667eea 0%,#764ba2 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #667eea22;">Skip</button>
+                        </div>
+                    </div>
+                    <style>
+                        #apply-referral-btn:hover { background:linear-gradient(90deg,#38f9d7 0%,#43e97b 100%); box-shadow:0 4px 16px #43e97b44; }
+                        #skip-referral-btn:hover { background:linear-gradient(90deg,#764ba2 0%,#667eea 100%); box-shadow:0 4px 16px #667eea44; }
+                        #referral-input:focus { border-color:#38f9d7; }
+                    </style>
+                `;
+                document.getElementById('apply-referral-btn').onclick = async function() {
+                    const code = document.getElementById('referral-input').value.trim();
+                    if (!code) {
+                        document.getElementById('referral-error').textContent = 'Please enter a referral code or click Skip.';
+                        return;
+                    }
+                    // Call backend to validate/apply referral
+                    const res = await fetch('/api/apply-referral', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone, referralCode: code, amount: total })
+                    });
+                    const data = await res.json();
+                    if (!data.success) {
+                        document.getElementById('referral-error').textContent = data.message || 'Invalid referral code.';
+                        return;
+                    }
+                    // Success: show confirmation modal with discounted amount
+                    modal.innerHTML = `
+                        <div style=\"background:#fff;padding:2em 2em 1.5em 2em;border-radius:18px;max-width:400px;text-align:center;box-shadow:0 4px 24px #0003;\">
+                            <h2 style='margin-bottom:1em;color:#2d7a2d;'>Referral Applied!</h2>
+                            <div style='margin-bottom:1em;font-size:1.08em;color:#444;'>You get <b>₹50 off</b> on your order.</div>
+                            <div style='margin-bottom:1.5em;font-size:1.18em;color:#222;'>You need to pay: <b>₹${data.newAmount}</b></div>
+                            <div style=\"display:flex;gap:1em;justify-content:center;\">
+                                <button id=\"pay-now-btn\" class=\"modal-btn primary-btn\" style=\"flex:1;background:linear-gradient(90deg,#43e97b 0%,#38f9d7 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #43e97b22;\">Pay Now</button>
+                                <button id=\"cancel-pay-btn\" class=\"modal-btn secondary-btn\" style=\"flex:1;background:linear-gradient(90deg,#667eea 0%,#764ba2 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #667eea22;\">Cancel</button>
+                            </div>
+                        </div>
+                        <style>
+                            #pay-now-btn:hover { background:linear-gradient(90deg,#38f9d7 0%,#43e97b 100%); box-shadow:0 4px 16px #43e97b44; }
+                            #cancel-pay-btn:hover { background:linear-gradient(90deg,#764ba2 0%,#667eea 100%); box-shadow:0 4px 16px #667eea44; }
+                        </style>
+                    `;
+                    document.getElementById('pay-now-btn').onclick = async function() {
+                        await new Promise(r => setTimeout(r, 1000));
+                        const res = await fetch('/api/confirm-referral-order', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phone, referralCode: code, amount: total, items: selectedItems, date: new Date().toISOString() })
+                        });
+                        const data2 = await res.json();
+                        if (!data2.success) {
+                            alert(data2.message || 'Something went wrong. Please try again.');
+                            modal.style.display = 'none';
+                            document.getElementById('summary-section').style.display = 'block';
+                            return;
+                        }
+                        modal.style.display = 'none';
+                        document.getElementById('summary-section').style.display = 'none';
+                        document.getElementById('close-section').style.display = 'block';
+                        document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+                    };
+                    document.getElementById('cancel-pay-btn').onclick = function() {
+                        modal.style.display = 'none';
+                        document.getElementById('summary-section').style.display = 'block';
+                    };
+                };
+                document.getElementById('skip-referral-btn').onclick = async function() {
+                    // Proceed with normal payment
+                    await new Promise(r => setTimeout(r, 1000));
+                    await fetch('/api/order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone, items: selectedItems, total, date: new Date().toISOString() })
+                    });
+                    modal.style.display = 'none';
+                    document.getElementById('summary-section').style.display = 'none';
+                    document.getElementById('close-section').style.display = 'block';
+                    document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+                };
             };
             if (!restrictToPayToday) {
                 document.getElementById('subscribe-btn').onclick = function() {

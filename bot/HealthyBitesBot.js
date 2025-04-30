@@ -46,6 +46,19 @@ function formatMenu(menu) {
     return msg;
 }
 
+// Helper: Generate unique referral code
+async function generateUniqueReferralCode(phone, UserModel) {
+    const last2 = phone.slice(-2);
+    let code;
+    let exists = true;
+    while (exists) {
+        const rand = Math.floor(100 + Math.random() * 900); // 3-digit random
+        code = `HBE${last2}${rand}`.toUpperCase();
+        exists = await UserModel.findOne({ referralCode: code });
+    }
+    return code;
+}
+
 class HealthyBitesBot extends ActivityHandler {
     constructor(User, conversationState, userState, lastOrderByPhone = {}) {
         super();
@@ -68,7 +81,7 @@ class HealthyBitesBot extends ActivityHandler {
             const userProfileAccessor = this.userState.createProperty('userProfile');
             let onboardingStep = await onboardingStepAccessor.get(context, ONBOARDING_STEPS.NONE);
             let userProfile = await userProfileAccessor.get(context, {});
-            const text = context.activity.text && context.activity.text.trim();
+            let text = context.activity.text && context.activity.text.trim();
 
             // Feedback window check
             const now = new Date();
@@ -139,6 +152,21 @@ class HealthyBitesBot extends ActivityHandler {
                 return;
             }
 
+            // Handle update_profile action from Adaptive Card
+            if (context.activity.value && context.activity.value.action === 'update_profile') {
+                // Fetch latest profile and set in user state
+                const latestProfile = await this.User.findOne({ phone: userProfile.phone });
+                if (latestProfile) {
+                    await userProfileAccessor.set(context, latestProfile.toObject());
+                }
+                await onboardingStepAccessor.set(context, ONBOARDING_STEPS.ASK_UPDATE);
+                // Simulate 'Yes' response to trigger ASK_UPDATE case
+                onboardingStep = ONBOARDING_STEPS.ASK_UPDATE;
+                // Overwrite text to 'Yes' so the switch-case flows as if user replied Yes
+                text = 'Yes';
+                // Do not return here; let the switch-case below handle the rest
+            }
+
             // If pending order exists, show order status and cancel button
             if (pendingOrder) {
                 await this.sendOrderStatusCard(context, pendingOrder);
@@ -150,6 +178,31 @@ class HealthyBitesBot extends ActivityHandler {
                 const { items, total } = this.lastOrderByPhone[userProfile.phone];
                 await context.sendActivity(`We have received your order of Rs. ${total} for the following food items:\n- ${items.join('\n- ')}`);
                 delete this.lastOrderByPhone[userProfile.phone];
+            }
+
+            // Show profile if user message contains 'profile'
+            if (userProfile.phone && text && text.toLowerCase().includes('profile')) {
+                const existingUser = await this.User.findOne({ phone: userProfile.phone });
+                if (existingUser) {
+                    await context.sendActivity({
+                        attachments: [this.profileAdaptiveCard(existingUser)],
+                    });
+                    await context.sendActivity({
+                        attachments: [CardFactory.adaptiveCard({
+                            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                            "type": "AdaptiveCard",
+                            "version": "1.3",
+                            "body": [
+                                { "type": "TextBlock", "text": "Would you like to update your profile?", "wrap": true },
+                            ],
+                            "actions": [
+                                { "type": "Action.Submit", "title": "Update your profile", "data": { action: "update_profile" } }
+                            ]
+                        })]
+                    });
+                    await onboardingStepAccessor.set(context, ONBOARDING_STEPS.ASK_UPDATE);
+                    return;
+                }
             }
 
             switch (onboardingStep) {
@@ -255,6 +308,8 @@ class HealthyBitesBot extends ActivityHandler {
                     break;
                 case ONBOARDING_STEPS.ASK_HEARD:
                     userProfile.heardFrom = text;
+                    // Generate unique referral code
+                    userProfile.referralCode = await generateUniqueReferralCode(userProfile.phone, this.User);
                     // Save to DB
                     const newUser = new this.User(userProfile);
                     await newUser.save();
@@ -379,7 +434,10 @@ class HealthyBitesBot extends ActivityHandler {
                         { "title": "Phone:", "value": user.phone },
                         { "title": "Office Address:", "value": user.officeAddress },
                         { "title": "Home Address:", "value": user.homeAddress },
-                        { "title": "Heard About Us:", "value": user.heardFrom }
+                        { "title": "Heard About Us:", "value": user.heardFrom },
+                        { "title": "Referral Code:", "value": user.referralCode || "-" },
+                        { "title": "Successful Referrals:", "value": (user.successfulReferralsGiven || 0).toString() },
+                        { "title": "Referrals Used:", "value": (user.referralsUsed || 0).toString() }
                     ]
                 }
             ]
