@@ -257,34 +257,51 @@ class HealthyBitesBot extends ActivityHandler {
     }
 
     async showMenuAndOrderButton(context, phone) {
-        const menu = loadMenu();
-        await context.sendActivity({
-            text: formatMenu(menu),
-            textFormat: 'markdown',
-        });
-        await context.sendActivity({
-            attachments: [
-                CardFactory.adaptiveCard({
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "type": "AdaptiveCard",
-                    "version": "1.3",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": "Click the button below to select food items you want to order.",
-                            "wrap": true
-                        }
-                    ],
-                    "actions": [
-                        {
-                            "type": "Action.OpenUrl",
-                            "title": "Order Now",
-                            "url": `http://localhost:3978/order?phone=${encodeURIComponent(phone)}`
-                        }
-                    ]
-                })
-            ]
-        });
+        // Time-based menu sending
+        const now = new Date();
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        // Helper to check if time is in a range
+        function inRange(startH, startM, endH, endM) {
+            const nowMins = hours * 60 + minutes;
+            const start = startH * 60 + startM;
+            const end = endH * 60 + endM;
+            return nowMins >= start && nowMins <= end;
+        }
+        const isLunchTime = inRange(6, 0, 8, 30);
+        const isDinnerTime = inRange(14, 0, 16, 30);
+        if (isLunchTime || isDinnerTime) {
+            const menu = loadMenu();
+            await context.sendActivity({
+                text: formatMenu(menu),
+                textFormat: 'markdown',
+            });
+            await context.sendActivity({
+                attachments: [
+                    CardFactory.adaptiveCard({
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.3",
+                        "body": [
+                            {
+                                "type": "TextBlock",
+                                "text": "Click the button below to select food items you want to order.",
+                                "wrap": true
+                            }
+                        ],
+                        "actions": [
+                            {
+                                "type": "Action.OpenUrl",
+                                "title": "Order Now",
+                                "url": `http://localhost:3978/order?phone=${encodeURIComponent(phone)}`
+                            }
+                        ]
+                    })
+                ]
+            });
+        } else {
+            await context.sendActivity('You will receive the menu daily at 6am and 2pm. Ordering is open only between 6:00–8:30am for lunch and 2:00–4:30pm for dinner.');
+        }
     }
 
     async sendOrderStatusCard(context, order) {
@@ -340,4 +357,4 @@ class HealthyBitesBot extends ActivityHandler {
     }
 }
 
-module.exports = { HealthyBitesBot, ONBOARDING_STEPS, isValidPhoneNumber }; 
+module.exports = { HealthyBitesBot, ONBOARDING_STEPS, isValidPhoneNumber, formatMenu, loadMenu }; 

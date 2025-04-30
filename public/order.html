@@ -88,6 +88,18 @@
                 menuData = menu;
                 const menuDiv = document.getElementById('menu');
                 menuDiv.innerHTML = '';
+                // Time-based menu visibility
+                const now = new Date();
+                const hours = now.getHours();
+                const minutes = now.getMinutes();
+                function inRange(startH, startM, endH, endM) {
+                    const nowMins = hours * 60 + minutes;
+                    const start = startH * 60 + startM;
+                    const end = endH * 60 + endM;
+                    return nowMins >= start && nowMins <= end;
+                }
+                const isLunchTime = inRange(6, 0, 8, 30);
+                const isDinnerTime = inRange(14, 0, 16, 30);
                 function renderSection(title, items, isExtra) {
                     let html = `<div class='section'><h2>${title}</h2>`;
                     items.forEach(item => {
@@ -103,9 +115,16 @@
                     html += '</div>';
                     return html;
                 }
-                menuDiv.innerHTML += renderSection('Lunch', menu.Lunch);
-                menuDiv.innerHTML += renderSection('Dinner', menu.Dinner);
-                menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+                if (isLunchTime) {
+                    menuDiv.innerHTML += renderSection('Lunch', menu.Lunch);
+                    menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+                } else if (isDinnerTime) {
+                    menuDiv.innerHTML += renderSection('Dinner', menu.Dinner);
+                    menuDiv.innerHTML += renderSection('Extra Items', menu.ExtraItems, true);
+                } else {
+                    menuDiv.innerHTML = `<div style='text-align:center;font-size:1.2em;margin:2em 0;'>We take orders only between 6AM and 8:30AM for lunch and 2PM and 4:30PM for dinner.</div>`;
+                    document.querySelector('.submit-btn').style.display = 'none';
+                }
                 updateBill();
             });
 
@@ -171,8 +190,23 @@
             const total = selectedItems.reduce((sum, item) => sum + prices[item], 0);
             // Check subscription status
             const profile = await checkSubscriptionStatus(phone);
-            if (["Monthly", "Monthly_Lunch", "Monthly_Dinner"].includes(profile.subscriptionStatus)) {
-                // User is subscribed, store order directly
+            // Determine time slot
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            function inRange(startH, startM, endH, endM) {
+                const nowMins = hours * 60 + minutes;
+                const start = startH * 60 + startM;
+                const end = endH * 60 + endM;
+                return nowMins >= start && nowMins <= end;
+            }
+            const isLunchTime = inRange(6, 0, 8, 30);
+            const isDinnerTime = inRange(14, 0, 16, 30);
+            // Subscription logic
+            if (profile.subscriptionStatus === "Monthly" ||
+                (profile.subscriptionStatus === "Monthly_Lunch" && isLunchTime) ||
+                (profile.subscriptionStatus === "Monthly_Dinner" && isDinnerTime)) {
+                // User is subscribed for this slot, store order directly
                 await fetch('/api/order', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -181,14 +215,20 @@
                 document.getElementById('summary-section').style.display = 'none';
                 document.getElementById('close-section').style.display = 'block';
                 document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+            } else if (
+                (profile.subscriptionStatus === "Monthly_Lunch" && isDinnerTime) ||
+                (profile.subscriptionStatus === "Monthly_Dinner" && isLunchTime)
+            ) {
+                // User has a plan for the other slot, only allow pay for today
+                showPaymentOptions(total, true); // true = restrict to pay today only
             } else {
-                // Show payment/subscription options modal
-                showPaymentOptions(total);
+                // Show all options
+                showPaymentOptions(total, false);
             }
         };
 
         // Add payment/subscription modal logic
-        function showPaymentOptions(total) {
+        function showPaymentOptions(total, restrictToPayToday) {
             // Create modal if not exists
             let modal = document.getElementById('payment-modal');
             if (!modal) {
@@ -203,58 +243,57 @@
                 modal.style.display = 'flex';
                 modal.style.alignItems = 'center';
                 modal.style.justifyContent = 'center';
-                modal.innerHTML = `
-                    <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:16px;max-width:370px;text-align:center;box-shadow:0 4px 24px #0002;">
-                        <h2 style='margin-bottom:1.5em;'>Choose an Option</h2>
-                        <button id="pay-today-btn" class="modal-btn primary-btn">Order for Today Only<br><span style='font-size:0.95em;color:#fff8;'>Pay ₹${total}</span></button><br>
-                        <button id="subscribe-btn" class="modal-btn secondary-btn">Subscribe for a Month</button><br>
-                        <button id="cancel-modal-btn" class="modal-btn cancel-btn">Cancel</button>
-                    </div>
-                    <style>
-                        .modal-btn {
-                            display: block;
-                            width: 90%;
-                            margin: 0.7em auto;
-                            padding: 1em 0;
-                            font-size: 1.15em;
-                            border: none;
-                            border-radius: 8px;
-                            cursor: pointer;
-                            transition: box-shadow 0.2s, background 0.2s, color 0.2s;
-                            font-weight: 600;
-                            box-shadow: 0 2px 8px #0001;
-                        }
-                        .primary-btn {
-                            background: linear-gradient(90deg, #43e97b 0%, #38f9d7 100%);
-                            color: #fff;
-                        }
-                        .primary-btn:hover {
-                            background: linear-gradient(90deg, #38f9d7 0%, #43e97b 100%);
-                            box-shadow: 0 4px 16px #43e97b44;
-                        }
-                        .secondary-btn {
-                            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-                            color: #fff;
-                        }
-                        .secondary-btn:hover {
-                            background: linear-gradient(90deg, #764ba2 0%, #667eea 100%);
-                            box-shadow: 0 4px 16px #667eea44;
-                        }
-                        .cancel-btn {
-                            background: #eee;
-                            color: #444;
-                        }
-                        .cancel-btn:hover {
-                            background: #ddd;
-                            color: #111;
-                        }
-                    </style>
-                `;
                 document.body.appendChild(modal);
             } else {
                 modal.style.display = 'flex';
             }
-            // Button handlers
+            modal.innerHTML = `
+                <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:16px;max-width:370px;text-align:center;box-shadow:0 4px 24px #0002;">
+                    <h2 style='margin-bottom:1.5em;'>Choose an Option</h2>
+                    <button id="pay-today-btn" class="modal-btn primary-btn">Order for Today Only<br><span style='font-size:0.95em;color:#fff8;'>Pay ₹${total}</span></button><br>
+                    ${restrictToPayToday ? '' : '<button id="subscribe-btn" class="modal-btn secondary-btn">Subscribe for a Month</button><br>'}
+                    <button id="cancel-modal-btn" class="modal-btn cancel-btn">Cancel</button>
+                </div>
+                <style>
+                    .modal-btn {
+                        display: block;
+                        width: 90%;
+                        margin: 0.7em auto;
+                        padding: 1em 0;
+                        font-size: 1.15em;
+                        border: none;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        transition: box-shadow 0.2s, background 0.2s, color 0.2s;
+                        font-weight: 600;
+                        box-shadow: 0 2px 8px #0001;
+                    }
+                    .primary-btn {
+                        background: linear-gradient(90deg, #43e97b 0%, #38f9d7 100%);
+                        color: #fff;
+                    }
+                    .primary-btn:hover {
+                        background: linear-gradient(90deg, #38f9d7 0%, #43e97b 100%);
+                        box-shadow: 0 4px 16px #43e97b44;
+                    }
+                    .secondary-btn {
+                        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+                        color: #fff;
+                    }
+                    .secondary-btn:hover {
+                        background: linear-gradient(90deg, #764ba2 0%, #667eea 100%);
+                        box-shadow: 0 4px 16px #667eea44;
+                    }
+                    .cancel-btn {
+                        background: #eee;
+                        color: #444;
+                    }
+                    .cancel-btn:hover {
+                        background: #ddd;
+                        color: #111;
+                    }
+                </style>
+            `;
             document.getElementById('pay-today-btn').onclick = async function() {
                 // Dummy payment
                 await new Promise(r => setTimeout(r, 1000));
@@ -268,9 +307,11 @@
                 document.getElementById('close-section').style.display = 'block';
                 document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
             };
-            document.getElementById('subscribe-btn').onclick = function() {
-                showSubscriptionTypeModal(total);
-            };
+            if (!restrictToPayToday) {
+                document.getElementById('subscribe-btn').onclick = function() {
+                    showSubscriptionTypeModal(total);
+                };
+            }
             document.getElementById('cancel-modal-btn').onclick = function() {
                 modal.style.display = 'none';
                 document.getElementById('summary-section').style.display = 'none';
