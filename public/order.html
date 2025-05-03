@@ -214,7 +214,17 @@
             }
             const isLunchTime = inRange(6, 0, 8, 30);
             const isDinnerTime = inRange(14, 0, 23, 30);
-            // Subscription logic
+
+            // OTP Verification Step (for unsubscribed users)
+            if (!(profile.subscriptionStatus === "Monthly" ||
+                (profile.subscriptionStatus === "Monthly_Lunch" && isLunchTime) ||
+                (profile.subscriptionStatus === "Monthly_Dinner" && isDinnerTime))) {
+                // Show OTP modal and only proceed if verified
+                const otpVerified = await showOtpModal(phone);
+                if (!otpVerified) return; // User cancelled or failed OTP
+            }
+
+            // Subscription logic (unchanged)
             if (profile.subscriptionStatus === "Monthly" ||
                 (profile.subscriptionStatus === "Monthly_Lunch" && isLunchTime) ||
                 (profile.subscriptionStatus === "Monthly_Dinner" && isDinnerTime)) {
@@ -238,6 +248,112 @@
                 showPaymentOptions(total, false);
             }
         };
+
+        // OTP Modal Logic
+        async function showOtpModal(phone) {
+            return new Promise(async (resolve) => {
+                // Create modal if not exists
+                let modal = document.getElementById('otp-modal');
+                if (!modal) {
+                    modal = document.createElement('div');
+                    modal.id = 'otp-modal';
+                    modal.style.position = 'fixed';
+                    modal.style.top = '0';
+                    modal.style.left = '0';
+                    modal.style.width = '100vw';
+                    modal.style.height = '100vh';
+                    modal.style.background = 'rgba(0,0,0,0.4)';
+                    modal.style.display = 'flex';
+                    modal.style.alignItems = 'center';
+                    modal.style.justifyContent = 'center';
+                    modal.style.zIndex = '9999';
+                    document.body.appendChild(modal);
+                } else {
+                    modal.style.display = 'flex';
+                }
+                // Send OTP
+                let otpSent = false;
+                let errorMsg = '';
+                async function sendOtp() {
+                    try {
+                        const res = await fetch('/api/send-otp', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phone: '+91' + phone, channel: 'whatsapp' })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            otpSent = true;
+                            errorMsg = '';
+                        } else {
+                            otpSent = false;
+                            errorMsg = data.message || 'Failed to send OTP.';
+                        }
+                    } catch (e) {
+                        otpSent = false;
+                        errorMsg = 'Failed to send OTP.';
+                    }
+                }
+                await sendOtp();
+                renderOtpModal();
+
+                function renderOtpModal() {
+                    modal.innerHTML = `
+                        <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:18px;max-width:400px;text-align:center;box-shadow:0 4px 24px #0003;">
+                            <h2 style='margin-bottom:1em;color:#2d7a2d;'>Verify Your Number</h2>
+                            <div style='margin-bottom:1em;font-size:1.08em;color:#444;'>An OTP has been sent to your WhatsApp number <b>${phone}</b>.</div>
+                            <input id="otp-input" type="text" maxlength="6" style="width:70%;padding:0.9em 1em;font-size:1.13em;border-radius:8px;border:1.5px solid #43e97b;margin-bottom:1.2em;outline:none;transition:border 0.2s;letter-spacing:0.3em;text-align:center;" placeholder="Enter OTP">
+                            <div id="otp-error" style="color:#c00;font-size:1em;margin-bottom:1em;">${errorMsg}</div>
+                            <div style="display:flex;gap:1em;justify-content:center;align-items:center;">
+                                <button id="verify-otp-btn" class="modal-btn primary-btn" style="flex:1;background:linear-gradient(90deg,#43e97b 0%,#38f9d7 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #43e97b22;">Verify</button>
+                                <button id="resend-otp-btn" class="modal-btn secondary-btn" style="flex:1;background:linear-gradient(90deg,#667eea 0%,#764ba2 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #667eea22;">Resend OTP</button>
+                            </div>
+                            <button id="cancel-otp-btn" class="modal-btn cancel-btn" style="margin-top:1.2em;font-size:1.08em;padding:0.7em 0;border-radius:8px;width:90%;">Cancel</button>
+                        </div>
+                        <style>
+                            #verify-otp-btn:hover { background:linear-gradient(90deg,#38f9d7 0%,#43e97b 100%); box-shadow:0 4px 16px #43e97b44; }
+                            #resend-otp-btn:hover { background:linear-gradient(90deg,#764ba2 0%,#667eea 100%); box-shadow:0 4px 16px #667eea44; }
+                            #otp-input:focus { border-color:#38f9d7; }
+                            .cancel-btn { background: #eee; color: #444; }
+                            .cancel-btn:hover { background: #ddd; color: #111; }
+                        </style>
+                    `;
+                    document.getElementById('verify-otp-btn').onclick = async function() {
+                        const otp = document.getElementById('otp-input').value.trim();
+                        if (!otp || otp.length !== 6) {
+                            document.getElementById('otp-error').textContent = 'Please enter a valid 6-digit OTP.';
+                            return;
+                        }
+                        // Verify OTP
+                        try {
+                            const res = await fetch('/api/verify-otp', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ phone: '+91' + phone, otp })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                modal.style.display = 'none';
+                                resolve(true);
+                            } else {
+                                document.getElementById('otp-error').textContent = data.message || 'Invalid or expired OTP.';
+                            }
+                        } catch (e) {
+                            document.getElementById('otp-error').textContent = 'Failed to verify OTP.';
+                        }
+                    };
+                    document.getElementById('resend-otp-btn').onclick = async function() {
+                        document.getElementById('otp-error').textContent = 'Resending OTP...';
+                        await sendOtp();
+                        renderOtpModal();
+                    };
+                    document.getElementById('cancel-otp-btn').onclick = function() {
+                        modal.style.display = 'none';
+                        resolve(false);
+                    };
+                }
+            });
+        }
 
         // Add payment/subscription modal logic
         function showPaymentOptions(total, restrictToPayToday) {
@@ -307,29 +423,23 @@
                 </style>
             `;
             document.getElementById('pay-today-btn').onclick = async function() {
-                // Referral code logic
-                if (total < 50) {
-                    alert('Referral code can only be used for payments above ₹50.');
-                    // Return to summary screen instead of placing order
-                    modal.style.display = 'none';
-                    document.getElementById('summary-section').style.display = 'block';
-                    return;
-                }
-                // Show referral code modal
+                // Show referral code modal (always, even if total < 50)
                 modal.innerHTML = `
-                    <div style="background:#fff;padding:2em 2em 1.5em 2em;border-radius:18px;max-width:400px;text-align:center;box-shadow:0 4px 24px #0003;">
+                    <div style=\"background:#fff;padding:2em 2em 1.5em 2em;border-radius:18px;max-width:400px;text-align:center;box-shadow:0 4px 24px #0003;\">
                         <h2 style='margin-bottom:1em;color:#2d7a2d;'>Referral Code</h2>
                         <div style='margin-bottom:1em;font-size:1.08em;color:#444;'>Enter referral code to avail <b>₹50 discount</b> (if you have one)</div>
-                        <input id="referral-input" type="text" maxlength="10" style="width:85%;padding:0.9em 1em;font-size:1.13em;border-radius:8px;border:1.5px solid #43e97b;margin-bottom:1.2em;outline:none;transition:border 0.2s;" placeholder="Referral Code" onfocus="this.style.borderColor='#38f9d7'" onblur="this.style.borderColor='#43e97b'">
-                        <div id="referral-error" style="color:#c00;font-size:1em;margin-bottom:1em;"></div>
-                        <div style="display:flex;gap:1em;justify-content:center;">
-                            <button id="apply-referral-btn" class="modal-btn primary-btn" style="flex:1;background:linear-gradient(90deg,#43e97b 0%,#38f9d7 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #43e97b22;">Apply</button>
-                            <button id="skip-referral-btn" class="modal-btn secondary-btn" style="flex:1;background:linear-gradient(90deg,#667eea 0%,#764ba2 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #667eea22;">Skip</button>
+                        <input id=\"referral-input\" type=\"text\" maxlength=\"10\" style=\"width:85%;padding:0.9em 1em;font-size:1.13em;border-radius:8px;border:1.5px solid #43e97b;margin-bottom:1.2em;outline:none;transition:border 0.2s;\" placeholder=\"Referral Code\" onfocus=\"this.style.borderColor='#38f9d7'\" onblur=\"this.style.borderColor='#43e97b'\">
+                        <div id=\"referral-error\" style=\"color:#c00;font-size:1em;margin-bottom:1em;\"></div>
+                        <div style=\"display:flex;gap:1em;justify-content:center;\">
+                            <button id=\"apply-referral-btn\" class=\"modal-btn primary-btn\" style=\"flex:1;background:linear-gradient(90deg,#43e97b 0%,#38f9d7 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #43e97b22;\">Apply</button>
+                            <button id=\"skip-referral-btn\" class=\"modal-btn secondary-btn\" style=\"flex:1;background:linear-gradient(90deg,#667eea 0%,#764ba2 100%);color:#fff;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;transition:background 0.2s,box-shadow 0.2s;box-shadow:0 2px 8px #667eea22;\">Skip</button>
+                            <button id=\"back-referral-btn\" class=\"modal-btn cancel-btn\" style=\"flex:1;background:#eee;color:#444;font-size:1.08em;padding:0.8em 0;border-radius:8px;font-weight:600;\">Go Back</button>
                         </div>
                     </div>
                     <style>
                         #apply-referral-btn:hover { background:linear-gradient(90deg,#38f9d7 0%,#43e97b 100%); box-shadow:0 4px 16px #43e97b44; }
                         #skip-referral-btn:hover { background:linear-gradient(90deg,#764ba2 0%,#667eea 100%); box-shadow:0 4px 16px #667eea44; }
+                        #back-referral-btn:hover { background:#ddd; color:#111; }
                         #referral-input:focus { border-color:#38f9d7; }
                     </style>
                 `;
@@ -337,6 +447,10 @@
                     const code = document.getElementById('referral-input').value.trim();
                     if (!code) {
                         document.getElementById('referral-error').textContent = 'Please enter a referral code or click Skip.';
+                        return;
+                    }
+                    if (total < 50) {
+                        document.getElementById('referral-error').textContent = 'Referral code can only be used for payments above ₹50.';
                         return;
                     }
                     // Call backend to validate/apply referral
@@ -402,6 +516,10 @@
                     document.getElementById('summary-section').style.display = 'none';
                     document.getElementById('close-section').style.display = 'block';
                     document.getElementById('close-section').scrollIntoView({ behavior: 'smooth' });
+                };
+                document.getElementById('back-referral-btn').onclick = function() {
+                    modal.style.display = 'none';
+                    document.getElementById('summary-section').style.display = 'block';
                 };
             };
             if (!restrictToPayToday) {

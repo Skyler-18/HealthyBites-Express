@@ -8,6 +8,7 @@ const path = require('path');
 const Order = require('./models/Order');
 const cron = require('node-cron');
 const { CardFactory, TurnContext } = require('botbuilder');
+const { sendOTP, resendOTP, verifyOTP, isBlocked } = require('./bot/otp');
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/HealthyBites', {
@@ -357,7 +358,7 @@ async function sendProactiveCancelOrder(order, windowType) {
     });
 }
 // Cron job for 8:35AM: send cancel option for lunch orders
-cron.schedule('35 8 * * *', async () => {
+cron.schedule('43 7 * * *', async () => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const endOfLunchCancelWindow = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 35, 0);
@@ -459,6 +460,50 @@ app.get('/api/test-proactive', async (req, res) => {
     }
     await sendProactiveMenu(phone, 'Test User', 'Hello from manual trigger');
     res.send(`Proactive message sent to ${phone} (if reference exists)`);
+});
+
+// OTP API endpoints
+app.post('/api/send-otp', async (req, res) => {
+    try {
+        const { phone, channel = 'sms' } = req.body;
+        if (!phone) {
+            return res.status(400).json({ success: false, message: 'Phone number is required' });
+        }
+        await sendOTP(phone, channel);
+        res.json({ success: true, message: 'OTP sent successfully' });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/resend-otp', async (req, res) => {
+    try {
+        const { phone, channel = 'sms' } = req.body;
+        if (!phone) {
+            return res.status(400).json({ success: false, message: 'Phone number is required' });
+        }
+        await resendOTP(phone, channel);
+        res.json({ success: true, message: 'OTP resent successfully' });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/verify-otp', async (req, res) => {
+    try {
+        const { phone, otp } = req.body;
+        if (!phone || !otp) {
+            return res.status(400).json({ success: false, message: 'Phone number and OTP are required' });
+        }
+        const isValid = verifyOTP(phone, otp);
+        if (isValid) {
+            res.json({ success: true, message: 'OTP verified successfully' });
+        } else {
+            res.status(400).json({ success: false, message: 'Invalid OTP' });
+        }
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
 });
 
 app.listen(PORT, () => {

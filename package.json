@@ -15,6 +15,7 @@
     "express": "^5.1.0",
     "mongoose": "^8.14.0",
     "node-cron": "^3.0.3",
-    "scratch": "file:"
+    "scratch": "file:",
+    "twilio": "^4.23.0"
   }
 }
