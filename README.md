@@ -1,4 +1,4 @@
-Absolutely! Here’s a **comprehensive summary** of your current system’s logic and user experience, based on your latest code in `index.js`, `bot/HealthyBitesBot.js`, and `public/order.html`:
+Here is the list of all features this chatbot offers:
 
 ---
 
@@ -132,5 +132,3 @@ Absolutely! Here’s a **comprehensive summary** of your current system’s logi
 | Feedback Window      | 1:30–1:55PM, 8:30–9:30PM | User feedback stored in latest delivered order | Only during this window        |
 
 ---
-
-**If you want a more detailed breakdown of any specific flow, or a diagram, let me know!**
